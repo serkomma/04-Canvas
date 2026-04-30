@@ -76,6 +76,11 @@ class Chart(
         }.let { colorsForGradient.addAll(it) }
     }
 
+    data class TextProcessing(
+        var value: Float,
+        var ratio: Float,
+    )
+
     fun draw(
         canvas: Canvas,
         centerX: Float,
@@ -89,57 +94,57 @@ class Chart(
             centerX + side / 2,
             centerY + side / 2
         )
+
         // Расчёты параметров квадратов для рисования текстовой дуги
-        var firsrRatio = 0f
-        var prevPrevRatio = 0f
-        var prevRatio = 0f
-        var lastOneWasLongButNotElevated = false
-        val lettersPerDegreeList: MutableList<Float> = mutableListOf()
+        val textMeasures: MutableList<TextProcessing> = mutableListOf()
+        var cumulativeSectorAngle = 0f
         rectFTexts.mapIndexed { index, line ->
-            var ratio = FIRST_LEVEL_TEXT_DISTANCE_RATIO
             val dataLine = data[index]
-            val lettersPerDegree = dataLine.name.length / (dataLine.amount.toFloat() / chartSum * 360)
-            if (isTextNeedsToBeElevatedToThirdLevel(lettersPerDegreeList, prevRatio))
+            val textMeasure = textPaint.measureText(dataLine.name)
+            val sectorAngle = dataLine.amount.toFloat() / chartSum * 360
+            var ratio = FIRST_LEVEL_TEXT_DISTANCE_RATIO
+            if (textMeasures.none { it.ratio == THIRD_LEVEL_TEXT_DISTANCE_RATIO })
                 ratio = THIRD_LEVEL_TEXT_DISTANCE_RATIO
-            if (lettersPerDegree > LETTERS_PER_DEGREE_RATIO) {
+            if (textMeasures.none { it.ratio == SECOND_LEVEL_TEXT_DISTANCE_RATIO })
                 ratio = SECOND_LEVEL_TEXT_DISTANCE_RATIO
-                if (isTextNeedsToBeElevatedToThirdLevel(lettersPerDegreeList, prevRatio))
-                    ratio = THIRD_LEVEL_TEXT_DISTANCE_RATIO
-                if (ratio == (prevRatio.takeIf { it != THIRD_LEVEL_TEXT_DISTANCE_RATIO } ?: prevPrevRatio)) {
-                    ratio = FIRST_LEVEL_TEXT_DISTANCE_RATIO
-                    lastOneWasLongButNotElevated = true
-                } else {
-                    lastOneWasLongButNotElevated = false
-                }
-                if (index == rectFTexts.size - 1 && ratio == firsrRatio) {
-                    ratio = when (firsrRatio) {
-                        FIRST_LEVEL_TEXT_DISTANCE_RATIO -> {
-                            if (prevRatio == SECOND_LEVEL_TEXT_DISTANCE_RATIO) THIRD_LEVEL_TEXT_DISTANCE_RATIO
-                            else SECOND_LEVEL_TEXT_DISTANCE_RATIO
-                        }
-                        SECOND_LEVEL_TEXT_DISTANCE_RATIO -> {
-                            if (prevRatio == FIRST_LEVEL_TEXT_DISTANCE_RATIO) THIRD_LEVEL_TEXT_DISTANCE_RATIO
-                            else FIRST_LEVEL_TEXT_DISTANCE_RATIO
-                        }
-                        else -> ratio
-                    }
-                }
-            } else {
-                if (lastOneWasLongButNotElevated && ratio != THIRD_LEVEL_TEXT_DISTANCE_RATIO){
-                    ratio = SECOND_LEVEL_TEXT_DISTANCE_RATIO
-                }
-                lastOneWasLongButNotElevated = false
+            if (textMeasures.none { it.ratio == FIRST_LEVEL_TEXT_DISTANCE_RATIO })
+                ratio = FIRST_LEVEL_TEXT_DISTANCE_RATIO
+
+            // arc length = pi*r*n/180
+            val sectorChartArcLength = (Math.PI * (side / 2 * ratio) * sectorAngle / 180).toFloat()
+
+            // Предотвращение соприкосновений текста на втором круге
+            // n = 180*l/(pi*R)
+            val textAngleOnSecondCircle = 180 * textMeasure / (Math.PI * (side / 2 * ratio)) +
+                    cumulativeSectorAngle - 360
+            if (textMeasure > sectorChartArcLength
+                && textAngleOnSecondCircle > 0) {
+                ratio = if (textAngleOnSecondCircle < data[0].amount.toFloat() / chartSum * 360
+                    && textMeasures.none { it.ratio == SECOND_LEVEL_TEXT_DISTANCE_RATIO })
+                    SECOND_LEVEL_TEXT_DISTANCE_RATIO
+                else THIRD_LEVEL_TEXT_DISTANCE_RATIO
             }
-            lettersPerDegreeList.add(lettersPerDegree)
+
             line.set(
                 centerX - side / 2 * ratio,
                 centerY - side / 2 * ratio,
                 centerX + side / 2 * ratio,
                 centerY + side / 2 * ratio
             )
-            prevPrevRatio = prevRatio
-            prevRatio = ratio
-            if (index == 0) firsrRatio = ratio
+
+            for (i in textMeasures.indices) {
+                val currentValue = textMeasures[i]
+                val valueDecrease = currentValue.value - sectorChartArcLength
+                textMeasures[i] = currentValue.copy(value = valueDecrease,)
+            }
+
+            textMeasures.removeIf { it.value <= TEXT_OVERLAY }
+
+            if ((textMeasure - sectorChartArcLength) > 0)
+                textMeasures.add(
+                    TextProcessing(textMeasure - sectorChartArcLength, ratio)
+                )
+            cumulativeSectorAngle += sectorAngle
         }
 
         var startAngle = DEGREE_OF_BEGINNING
@@ -190,7 +195,15 @@ class Chart(
             canvas.drawLine(textXBeg, textYBeg, textX, textY, textPaint)
             textPaths[index].addArc(rectFTexts[index], startTextAngle + textAngle, TEXT_ARC_LENGTH)
 //            val getAnimatedText = line.name.slice(0..<(line.name.length * currentAnimationTimeRatio).toInt())
-            if (currentAnimationTimeRatio == 1f) canvas.drawTextOnPath(line.name, textPaths[index], 0f, 0f, textPaint)
+            if (currentAnimationTimeRatio == 1f)
+                canvas.drawTextOnPath(
+                    // Визуальная пометка для очень маленьких сегментов
+                    if (zeroSegment) "<${line.name}" else line.name,
+                    textPaths[index],
+                    0f,
+                    0f,
+                    textPaint
+                )
         }
     }
 
@@ -222,11 +235,6 @@ class Chart(
         return "Непредвиденная ошибка"
     }
 
-    private fun isTextNeedsToBeElevatedToThirdLevel(lettersPerDegreeList: MutableList<Float>, prevRatio: Float): Boolean {
-        return if (lettersPerDegreeList.takeIf { it.size > 1 }?.let { it.last() + it.preLast() > THIRD_LEVEL_ELEVATION_NECESSITY } ?: false
-            && prevRatio != THIRD_LEVEL_TEXT_DISTANCE_RATIO) true else false
-    }
-
     companion object {
         // Угол начала рисования диаграммы (270 - на 12 часов)
         var DEGREE_OF_BEGINNING = 270f
@@ -251,18 +259,16 @@ class Chart(
         // Используется, когда текст не помещался в предыдущий и не помещается в текущий сегмент
         var THIRD_LEVEL_TEXT_DISTANCE_RATIO = 1.44f
 
-        // Коэффициент, отражающий, при насколько малых предыдущих секторах, текст будет поднят на 3 уровень
-        // Чем больше коэффициент, тем раньше текст будет стремиться на 3 уровень
-        val THIRD_LEVEL_ELEVATION_NECESSITY = 3f
-
-        // Коэффициент, отражающий, сколько символов поместится на одном градусе окружности
-        var LETTERS_PER_DEGREE_RATIO = 0.5f
-
         // Длина дуги, выделенной под текст надписи
         var TEXT_ARC_LENGTH = 50f
 
         // Линии от центра диаграммы
         var LINES_IN_CENTRE = false
+
+        // Допустимое наложение соседних текстов
+        // При увеличении возможны коллизии текстов на соседних секторах
+        // При уменьшении до 0 - слишком ранний переход текста на соседний уровень и худшая работа в очень плотной диаграмме
+        var TEXT_OVERLAY = 0.05f
 
         // Цвет диаграммы, используется, если COLOR_MODE = ColorMode.ONE
         var COLOR = Color.DKGRAY
