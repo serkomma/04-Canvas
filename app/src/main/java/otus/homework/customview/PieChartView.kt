@@ -58,7 +58,7 @@ class PieChartView @JvmOverloads constructor (
         val hMode = MeasureSpec.getMode(heightMeasureSpec)
         val wSize = MeasureSpec.getSize(widthMeasureSpec)
         val hSize = MeasureSpec.getSize(heightMeasureSpec)
-        val chartGain = Chart.CHART_CIRCLE_MAX_THICKNESS / 2 * Chart.ELEVATED_TEXT_DISTANCE_RATIO
+        val chartGain = Chart.CHART_CIRCLE_MAX_THICKNESS / 2 * Chart.THIRD_LEVEL_TEXT_DISTANCE_RATIO
         val desiredWidth = (wSize * CHART_SIZE_RATIO + chartGain).toInt()
         val desiredHeight = (hSize * CHART_SIZE_RATIO + chartGain).toInt()
         val width = when (wMode) {

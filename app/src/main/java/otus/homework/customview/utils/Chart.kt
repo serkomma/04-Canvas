@@ -90,32 +90,56 @@ class Chart(
             centerY + side / 2
         )
         // Расчёты параметров квадратов для рисования текстовой дуги
+        var firsrRatio = 0f
+        var prevPrevRatio = 0f
         var prevRatio = 0f
         var lastOneWasLongButNotElevated = false
+        val lettersPerDegreeList: MutableList<Float> = mutableListOf()
         rectFTexts.mapIndexed { index, line ->
-            var ratio = TEXT_DISTANCE_RATIO
+            var ratio = FIRST_LEVEL_TEXT_DISTANCE_RATIO
             val dataLine = data[index]
-            if (dataLine.name.length / (dataLine.amount.toFloat() / chartSum * 360) > LETTERS_PER_DEGREE_RATIO) {
-                ratio = ELEVATED_TEXT_DISTANCE_RATIO
-                if (ratio == prevRatio) {
-                    ratio = TEXT_DISTANCE_RATIO
+            val lettersPerDegree = dataLine.name.length / (dataLine.amount.toFloat() / chartSum * 360)
+            if (isTextNeedsToBeElevatedToThirdLevel(lettersPerDegreeList, prevRatio))
+                ratio = THIRD_LEVEL_TEXT_DISTANCE_RATIO
+            if (lettersPerDegree > LETTERS_PER_DEGREE_RATIO) {
+                ratio = SECOND_LEVEL_TEXT_DISTANCE_RATIO
+                if (isTextNeedsToBeElevatedToThirdLevel(lettersPerDegreeList, prevRatio))
+                    ratio = THIRD_LEVEL_TEXT_DISTANCE_RATIO
+                if (ratio == (prevRatio.takeIf { it != THIRD_LEVEL_TEXT_DISTANCE_RATIO } ?: prevPrevRatio)) {
+                    ratio = FIRST_LEVEL_TEXT_DISTANCE_RATIO
                     lastOneWasLongButNotElevated = true
                 } else {
                     lastOneWasLongButNotElevated = false
                 }
+                if (index == rectFTexts.size - 1 && ratio == firsrRatio) {
+                    ratio = when (firsrRatio) {
+                        FIRST_LEVEL_TEXT_DISTANCE_RATIO -> {
+                            if (prevRatio == SECOND_LEVEL_TEXT_DISTANCE_RATIO) THIRD_LEVEL_TEXT_DISTANCE_RATIO
+                            else SECOND_LEVEL_TEXT_DISTANCE_RATIO
+                        }
+                        SECOND_LEVEL_TEXT_DISTANCE_RATIO -> {
+                            if (prevRatio == FIRST_LEVEL_TEXT_DISTANCE_RATIO) THIRD_LEVEL_TEXT_DISTANCE_RATIO
+                            else FIRST_LEVEL_TEXT_DISTANCE_RATIO
+                        }
+                        else -> ratio
+                    }
+                }
             } else {
-                if (lastOneWasLongButNotElevated){
-                    ratio = ELEVATED_TEXT_DISTANCE_RATIO
+                if (lastOneWasLongButNotElevated && ratio != THIRD_LEVEL_TEXT_DISTANCE_RATIO){
+                    ratio = SECOND_LEVEL_TEXT_DISTANCE_RATIO
                 }
                 lastOneWasLongButNotElevated = false
             }
+            lettersPerDegreeList.add(lettersPerDegree)
             line.set(
                 centerX - side / 2 * ratio,
                 centerY - side / 2 * ratio,
                 centerX + side / 2 * ratio,
                 centerY + side / 2 * ratio
             )
+            prevPrevRatio = prevRatio
             prevRatio = ratio
+            if (index == 0) firsrRatio = ratio
         }
 
         var startAngle = DEGREE_OF_BEGINNING
@@ -153,7 +177,7 @@ class Chart(
             val lineAngle = textAngleAccumulated.normalizeDegrees() + (DEGREE_OF_BEGINNING - 90)
             textAngleAccumulated += pureSectorAngle
             val lineBeginning = side / 2 - CHART_CIRCLE_MIN_THICKNESS
-            val lineEnding = side / 2 * TEXT_DISTANCE_RATIO
+            val lineEnding = side / 2 * FIRST_LEVEL_TEXT_DISTANCE_RATIO
             val (textXBeg, textYBeg) = if (LINES_IN_CENTRE) {
                 centerX to centerY
             } else {
@@ -198,6 +222,11 @@ class Chart(
         return "Непредвиденная ошибка"
     }
 
+    private fun isTextNeedsToBeElevatedToThirdLevel(lettersPerDegreeList: MutableList<Float>, prevRatio: Float): Boolean {
+        return if (lettersPerDegreeList.takeIf { it.size > 1 }?.let { it.last() + it.preLast() > THIRD_LEVEL_ELEVATION_NECESSITY } ?: false
+            && prevRatio != THIRD_LEVEL_TEXT_DISTANCE_RATIO) true else false
+    }
+
     companion object {
         // Угол начала рисования диаграммы (270 - на 12 часов)
         var DEGREE_OF_BEGINNING = 270f
@@ -212,11 +241,19 @@ class Chart(
         var TEAR = 3f
 
         // Коэффициент расстояния текста от центра диаграммы (1.0 - середина кольца)
-        var TEXT_DISTANCE_RATIO = 1.3f
+        var FIRST_LEVEL_TEXT_DISTANCE_RATIO = 1.3f
 
-        // Коэффициент расстояния текста на верхнем уровне от диаграммы (1.0 - середина кольца)
+        // Коэффициент расстояния текста на втором уровне от диаграммы (1.0 - середина кольца)
         // Используется, когда текст не помещается в сегмент
-        var ELEVATED_TEXT_DISTANCE_RATIO = 1.37f
+        var SECOND_LEVEL_TEXT_DISTANCE_RATIO = 1.37f
+
+        // Коэффициент расстояния текста на третьем уровне от диаграммы (1.0 - середина кольца)
+        // Используется, когда текст не помещался в предыдущий и не помещается в текущий сегмент
+        var THIRD_LEVEL_TEXT_DISTANCE_RATIO = 1.44f
+
+        // Коэффициент, отражающий, при насколько малых предыдущих секторах, текст будет поднят на 3 уровень
+        // Чем больше коэффициент, тем раньше текст будет стремиться на 3 уровень
+        val THIRD_LEVEL_ELEVATION_NECESSITY = 3f
 
         // Коэффициент, отражающий, сколько символов поместится на одном градусе окружности
         var LETTERS_PER_DEGREE_RATIO = 0.5f
