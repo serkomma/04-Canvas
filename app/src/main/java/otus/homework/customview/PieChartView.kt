@@ -9,31 +9,32 @@ import android.os.Parcelable
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
-import android.widget.Toast
 import androidx.annotation.RequiresApi
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import otus.homework.customview.dto.ChartData
-import otus.homework.customview.dto.ChartLineData
 import otus.homework.customview.utils.Chart
 import kotlin.math.max
 
+typealias Ass = (String) -> Unit
 class PieChartView @JvmOverloads constructor (
     myContext: Context,
     attrs: AttributeSet? = null,
 ) : View(myContext, attrs) {
-    private lateinit var chart: Chart
+    private var chart: Chart? = null
 
     private val startTime = System.currentTimeMillis()
 
-    private lateinit var chartData: ChartData
+    private var chartData: ChartData = ChartData.EMPTY_DATA
 
-    fun populate(){
-        val inputStream = resources.openRawResource(R.raw.payload)
-        val json = inputStream.bufferedReader().use { it.readText() }
-        val userListType = object : TypeToken<List<ChartLineData>>() {}.type
-        chartData = ChartData(Gson().fromJson(json, userListType))
-        chart = Chart(chartData.data)
+
+    private var onCategoryClick: ((String) -> Unit)? = null
+
+    fun setOnCategoryClick(callback: (String) -> Unit) {
+        onCategoryClick = callback
+    }
+
+    fun populate(data: ChartData){
+        chartData = data
+        invalidate()
     }
 
     override fun onSaveInstanceState(): Parcelable {
@@ -47,7 +48,6 @@ class PieChartView @JvmOverloads constructor (
         if (state is SavedState) {
             super.onRestoreInstanceState(state.superState)
             chartData = state.value!!
-            chart = Chart(chartData.data)
         } else {
             super.onRestoreInstanceState(state)
         }
@@ -69,20 +69,52 @@ class PieChartView @JvmOverloads constructor (
         val height = when (hMode) {
             MeasureSpec.EXACTLY -> hSize
             MeasureSpec.AT_MOST -> max(desiredHeight, hSize)
-            else -> desiredWidth
+            else -> desiredHeight
         }
         setMeasuredDimension(width, height)
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val (centerX, centerY, side) = calculateCartPositionParameters(w, h)
+        chart = Chart(chartData.data, centerX, centerY, side)
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        val (centerX, centerY, side) = calculateCartPositionParameters()
+        val elapsedTime = System.currentTimeMillis() - startTime
+        var animationInProcess = false
+        val animationTime = if (elapsedTime <= 1000) {
+            animationInProcess = true
+            elapsedTime / 1000f
+        } else 1f
+        chart?.draw(canvas, centerX, centerY, side, animationTime)
+        if (animationInProcess) invalidate()
+    }
+
+    override fun onTouchEvent(event: MotionEvent?): Boolean {
+        val (centerX, centerY, side) = calculateCartPositionParameters()
+        event?.let {
+            chart?.getCategoryByCoordinates(event.x, event.y, centerX, centerY, side)?.let {
+                onCategoryClick?.invoke(it)
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+
+    // returns Triple(centerX, centerY, side)
+    fun calculateCartPositionParameters(
+        iHeight: Int? = null,
+        iWidth: Int? = null,
+    ): Triple<Float, Float, Float> {
         val paddingLeft = paddingLeft
         val paddingTop = paddingTop
         val paddingRight = paddingRight
         val paddingBottom = paddingBottom
 
-        val contentWidth = width - paddingLeft - paddingRight
-        val contentHeight = height - paddingTop - paddingBottom
+        val contentWidth = (iWidth ?: width) - paddingLeft - paddingRight
+        val contentHeight = (iHeight ?: height) - paddingTop - paddingBottom
 
         val centerX = contentWidth / 2f
         val centerY = contentHeight / 2f
@@ -90,35 +122,7 @@ class PieChartView @JvmOverloads constructor (
         val side: Float = if (orientation == Configuration.ORIENTATION_PORTRAIT)
             contentWidth * CHART_SIZE_RATIO
         else contentHeight * CHART_SIZE_RATIO
-
-        val elapsedTime = System.currentTimeMillis() - startTime
-        var animationInProcess = false
-        val animationTime = if (elapsedTime <= 1000) {
-            animationInProcess = true
-            elapsedTime / 1000f
-        } else 1f
-        chart.draw(canvas, centerX, centerY, side, animationTime)
-        if (animationInProcess) invalidate()
-    }
-
-    override fun onTouchEvent(event: MotionEvent?): Boolean {
-        val paddingLeft = paddingLeft
-        val paddingTop = paddingTop
-        val paddingRight = paddingRight
-        val paddingBottom = paddingBottom
-
-        val contentWidth = width - paddingLeft - paddingRight
-        val contentHeight = height - paddingTop - paddingBottom
-
-        val centerX = contentWidth / 2f
-        val centerY = contentHeight / 2f
-        val side: Float = contentWidth * 0.5f
-        event?.let {
-            chart.getCategoryByCoordinates(event.x, event.y, centerX, centerY, side)?.let {
-                Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
-            }
-        }
-        return super.onTouchEvent(event)
+        return Triple(centerX, centerY, side)
     }
 
     internal class SavedState : BaseSavedState {

@@ -15,4 +15,8 @@ data class ChartLineData(
 @Parcelize
 data class ChartData(
     val data: List<ChartLineData>
-) : Parcelable
+) : Parcelable {
+    companion object {
+        val EMPTY_DATA = ChartData(emptyList())
+    }
+}

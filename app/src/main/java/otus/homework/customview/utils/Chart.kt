@@ -18,7 +18,10 @@ import kotlin.random.Random
 
 
 class Chart(
-    private val data: List<ChartLineData>
+    private val data: List<ChartLineData>,
+    centerX: Float,
+    centerY: Float,
+    side: Float
 ){
     private val rectF = RectF()
 
@@ -38,6 +41,8 @@ class Chart(
     }
 
     private val colorsForGradient: MutableList<Pair<Int, Int>> = mutableListOf()
+
+    private val gradients: List<RadialGradient>
 
     init {
         var previousColor: Int? = null
@@ -74,6 +79,18 @@ class Chart(
         data.map {
             COLORS.random() to COLORS.random()
         }.let { colorsForGradient.addAll(it) }
+
+        gradients = List(data.size) { index ->
+            val colors = colorsForGradient[index]
+            RadialGradient(
+                centerX,
+                centerY,
+                side,
+                colors.first,
+                colors.second,
+                Shader.TileMode.CLAMP
+            )
+        }
     }
 
     data class TextProcessing(
@@ -165,14 +182,7 @@ class Chart(
                 paints[index].applyIf(COLOR_MODE == ColorMode.GRADIENT) {
                     val colors = colorsForGradient[index]
                     // Градиент, как я понял, заранее создать нельзя
-                    shader = RadialGradient(
-                        centerX,
-                        centerY,
-                        side,
-                        colors.first,
-                        colors.second,
-                        Shader.TileMode.CLAMP
-                    )
+                    shader = gradients[index]
                 } )
             startAngle += sectorAngle
             if (!zeroSegment) startAngle += TEAR / 2
@@ -193,6 +203,7 @@ class Chart(
             val textX = centerX + sideWithAnimationRatio * cos(toRadians(lineAngle.toDouble())).toFloat()
             val textY = centerY + sideWithAnimationRatio * sin(toRadians(lineAngle.toDouble())).toFloat()
             canvas.drawLine(textXBeg, textYBeg, textX, textY, textPaint)
+            textPaths[index].reset()
             textPaths[index].addArc(rectFTexts[index], startTextAngle + textAngle, TEXT_ARC_LENGTH)
 //            val getAnimatedText = line.name.slice(0..<(line.name.length * currentAnimationTimeRatio).toInt())
             if (currentAnimationTimeRatio == 1f)
